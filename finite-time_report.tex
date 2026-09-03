@@ -1,0 +1,424 @@
+\documentclass[11pt]{article}
+
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{geometry}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{booktabs}
+
+\geometry{margin=1in}
+
+\title{\textbf{Technical Report: Finite-Time Centroid Tracking, Exponential Formation Stabilization, and Input-to-State Stability for Multi-Agent Swarms}}
+\author{Yash Purswani}
+\date{\today}
+
+\newtheorem{proposition}{Proposition}
+\newtheorem{theorem}{Theorem}
+\newtheorem{corollary}{Corollary}
+\newtheorem{lemma}{Lemma}
+\newtheorem{remark}{Remark}
+\newtheorem{definition}{Definition}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This technical report provides a rigorous mathematical formulation of an extended swarm kinematic guidance model. The framework guarantees exact finite-time trajectory tracking of the swarm centroid along an arbitrary reference trajectory, independent of the formation geometry. By employing a hybrid inter-agent coupling term governed by true Euclidean inter-agent distance, the individual formation tracking errors are proved to converge globally and exponentially to zero. Furthermore, an Input-to-State Stability (ISS) analysis is developed under bounded additive disturbances, establishing a clean, forward-invariant disturbance hyper-ball and an analytical bound on the finite entrance time. We show that none of the formation-channel results require an assumption on the centroid: the sliding-mode term is dissipative for the formation Lyapunov function, so every such bound --- nominal and perturbed alike --- holds from the initial time rather than only after centroid convergence. Finally, we establish that the same sliding-mode term renders the centroid channel \emph{super-linearly} robust, confining the centroid error to a ball of radius $\bar{w}^{1/\beta}$ rather than the linear $\sqrt{n}\bar{w}$ that bounds the formation channel.
+\end{abstract}
+
+\section{System Formulation and Variable Definitions}
+
+Consider a multi-agent system consisting of $n \ge 2$ mobile agents operating in a $d$-dimensional Euclidean space $\mathbb{R}^d$. Let the state of agent $i \in \{1, \dots, n\}$ at time $t \ge t_0$ be denoted by its physical position coordinate vector:
+\begin{equation}
+x_i(t) \in \mathbb{R}^d, \quad \forall i \in \{1, \dots, n\}.
+\end{equation}
+
+\subsection{Variable and Parameter Definitions}
+The foundational variables and parameters governing the multi-agent system are defined as follows:
+\begin{enumerate}
+    \item \textbf{Swarm Centroid $c(t)$:} The geometric center of the swarm in $\mathbb{R}^d$ is defined by:
+    \begin{equation}
+    c(t) = \frac{1}{n}\sum_{i=1}^{n} x_i(t) \in \mathbb{R}^d.
+    \end{equation}
+    \item \textbf{Reference Trajectory $r(t)$:} The desired global trajectory to be tracked by the swarm centroid is denoted by $r(t) \in \mathbb{R}^d$. We assume $r(t)$ is continuously differentiable with derivative $\dot{r}(t) \in \mathbb{R}^d$.
+    \item \textbf{Centroid Tracking Error $\sigma(t)$:} The deviation of the swarm centroid from the target reference trajectory is given by:
+    \begin{equation}
+    \sigma(t) = c(t) - r(t) \in \mathbb{R}^d.
+    \end{equation}
+    \item \textbf{Time-Varying Formation Bias Vectors $p_i(t)$:} The assigned target spatial offset of agent $i$ relative to the swarm centroid is denoted by $p_i(t) \in \mathbb{R}^d$, with continuous time derivative $\dot{p}_i(t) \in \mathbb{R}^d$. The formation biases are constrained to satisfy the \textbf{Centering Condition}:
+    \begin{equation}
+    \sum_{i=1}^{n} p_i(t) = \mathbf{0}_d, \quad \implies \quad \sum_{i=1}^{n} \dot{p}_i(t) = \mathbf{0}_d, \quad \forall t \ge t_0.
+    \label{eq:centering_condition}
+    \end{equation}
+    \item \textbf{Individual Formation Tracking Error $\delta_i(t)$:} The tracking error of agent $i$ relative to its assigned moving slot is defined by:
+    \begin{equation}
+    \delta_i(t) = x_i(t) - p_i(t) - r(t) \in \mathbb{R}^d.
+    \label{eq:delta_def}
+    \end{equation}
+    The stacked collective formation error vector is denoted by $\boldsymbol{\delta}(t) = [\delta_1^T(t), \delta_2^T(t), \dots, \delta_n^T(t)]^T \in \mathbb{R}^{nd}$.
+    \item \textbf{Finite-Time Sliding-Mode Term $\zeta(t)$:} The non-smooth feedback signal $\zeta(t) \in \mathbb{R}^d$ acts on the centroid tracking error $\sigma(t)$. Its $s$-th component ($s \in \{1, \dots, d\}$) is defined by:
+    \begin{equation}
+    \zeta_s(t) = \operatorname{sign}(\sigma_s(t)) |\sigma_s(t)|^\beta, \quad \forall s \in \{1, \dots, d\},
+    \end{equation}
+    where $\beta \in (0, 1)$ is a fractional exponent governing the finite-time convergence rate.
+    \item \textbf{Interaction Coupling Parameters:}
+    \begin{itemize}
+        \item $M \in \mathbb{R}^{d \times d}$: A constant, symmetric, positive-definite matrix ($M = M^T > 0$) with minimum eigenvalue $\lambda_{\min}(M) > 0$.
+        \item $\nu \in \mathbb{N}_+$: An integer exponent governing the inter-agent potential field decay rate.
+        \item $\varepsilon > 0$: A small positive regularizing constant preventing singular forces during agent collocation.
+    \end{itemize}
+    \item \textbf{External Disturbance $w_i(t)$:} An unknown, additive disturbance vector acting on agent $i$, assumed to be Lebesgue measurable and uniformly bounded by a known constant $\bar{w} \ge 0$:
+    \begin{equation}
+    \|w_i(t)\| \le \bar{w}, \quad \forall i \in \{1, \dots, n\}, \quad \forall t \ge t_0.
+    \end{equation}
+\end{enumerate}
+
+\subsection{The Hybrid Swarm Kinematic Model}
+The proposed hybrid kinematic model governing each agent $i \in \{1, \dots, n\}$ is formulated as:
+\begin{equation}
+\dot{x}_i(t) = -(x_i(t) - p_i(t) - r(t)) + \dot{r}(t) + \dot{p}_i(t) - \zeta(t) - \frac{M}{n}\sum_{j=1}^{n} \frac{(x_i(t) - p_i(t)) - (x_j(t) - p_j(t))}{\|x_i(t) - x_j(t)\|^\nu + \varepsilon} + w_i(t).
+\label{eq:hybrid_dynamics}
+\end{equation}
+Using the tracking error definition \eqref{eq:delta_def}, notice that:
+\begin{align}
+(x_i(t) - p_i(t) - r_i(t)) - (x_j(t) - p_j(t) - r_j(t)) &= \delta_i(t) - \delta_j(t), \\
+x_i(t) - x_j(t) &= (\delta_i(t) - \delta_j(t)) + (p_i(t) - p_j(t)).
+\end{align}
+Thus, the dynamics \eqref{eq:hybrid_dynamics} in error coordinates become:
+\begin{equation}
+\dot{\delta}_i(t) = -\delta_i(t) - \zeta(t) - \frac{M}{n}\sum_{j=1}^{n} \frac{\delta_i(t) - \delta_j(t)}{\|x_i(t) - x_j(t)\|^\nu + \varepsilon} + w_i(t).
+\label{eq:error_dynamics}
+\end{equation}
+
+\subsection{A Structural Identity}
+
+The following elementary identity is used repeatedly in the sequel. It is what allows the sliding-mode term $\zeta$ --- which is common to all agents and therefore does not obviously interact with the \emph{formation} error --- to be handled exactly rather than assumed away.
+
+\begin{lemma}[Centroid--Formation Identity and Dissipativity of $\zeta$]
+Under the centering condition \eqref{eq:centering_condition}, the individual formation errors sum to the centroid error scaled by $n$:
+\begin{equation}
+\sum_{i=1}^{n} \delta_i(t) = n\,\sigma(t), \qquad \forall t \ge t_0.
+\label{eq:delta_sum_identity}
+\end{equation}
+Consequently, along any trajectory,
+\begin{equation}
+-\sum_{i=1}^{n} \delta_i^T(t)\,\zeta(t) \;=\; -\,n\sum_{s=1}^{d} |\sigma_s(t)|^{1+\beta} \;\le\; 0 .
+\label{eq:zeta_dissipative}
+\end{equation}
+\end{lemma}
+
+\begin{proof}
+Summing \eqref{eq:delta_def} over $i$ and applying \eqref{eq:centering_condition}:
+\begin{equation}
+\sum_{i=1}^{n}\delta_i(t) = \sum_{i=1}^{n} x_i(t) - \sum_{i=1}^{n} p_i(t) - n\,r(t) = n\,c(t) - \mathbf{0}_d - n\,r(t) = n\,\sigma(t),
+\end{equation}
+which is \eqref{eq:delta_sum_identity}. Since $\zeta(t)$ carries no agent index, it factors out of the sum:
+\begin{equation}
+\sum_{i=1}^{n}\delta_i^T(t)\,\zeta(t) = \left(\sum_{i=1}^{n}\delta_i(t)\right)^{\!T}\!\zeta(t) = n\,\sigma^T(t)\,\zeta(t) = n\sum_{s=1}^{d}\sigma_s(t)\operatorname{sign}(\sigma_s(t))|\sigma_s(t)|^\beta .
+\end{equation}
+Using $\sigma_s \operatorname{sign}(\sigma_s) = |\sigma_s|$ gives $\sum_{i}\delta_i^T \zeta = n\sum_{s}|\sigma_s|^{1+\beta} \ge 0$, and negating yields \eqref{eq:zeta_dissipative}.
+\end{proof}
+
+\section{Centroid Finite-Time Trajectory Tracking}
+
+\begin{proposition}[Finite-Time Centroid Convergence]
+Consider the nominal swarm kinematic system \eqref{eq:hybrid_dynamics} with $w_i(t) \equiv \mathbf{0}_d$. Under the centering condition \eqref{eq:centering_condition}, the swarm centroid tracking error $\sigma(t) = c(t) - r(t)$ converges identically to zero in a bounded finite time $\tau_c > 0$, irrespective of the chosen formation offsets $p_i(t)$ and interaction matrix $M$.
+\end{proposition}
+
+\begin{proof}
+Differentiating the swarm centroid $c(t) = \frac{1}{n}\sum_{i=1}^{n} x_i(t)$ with respect to time yields:
+\begin{align}
+\dot{c}(t) &= \frac{1}{n}\sum_{i=1}^{n} \dot{x}_i(t) \nonumber \\
+&= -\frac{1}{n}\sum_{i=1}^{n}(x_i(t) - p_i(t)) + r(t) + \dot{r}(t) + \frac{1}{n}\sum_{i=1}^{n}\dot{p}_i(t) - \zeta(t) \nonumber \\
+&\quad - \frac{M}{n^2}\sum_{i=1}^{n}\sum_{j=1}^{n} \frac{(x_i(t) - p_i(t)) - (x_j(t) - p_j(t))}{\|x_i(t) - x_j(t)\|^\nu + \varepsilon}.
+\label{eq:centroid_diff}
+\end{align}
+By the centering condition \eqref{eq:centering_condition}, $\sum_{i=1}^{n} p_i(t) = \mathbf{0}_d$ and $\sum_{i=1}^{n} \dot{p}_i(t) = \mathbf{0}_d$. Consequently:
+\begin{equation}
+\frac{1}{n}\sum_{i=1}^{n}(x_i(t) - p_i(t)) = \frac{1}{n}\sum_{i=1}^{n} x_i(t) - \frac{1}{n}\sum_{i=1}^{n} p_i(t) = c(t).
+\end{equation}
+Next, examine the double summation term in \eqref{eq:centroid_diff}. Let $\Gamma_{ij} = \frac{\delta_i(t) - \delta_j(t)}{\|x_i(t) - x_j(t)\|^\nu + \varepsilon}$. Since $\|x_i - x_j\| = \|x_j - x_i\|$, the denominator is symmetric with respect to indices $i$ and $j$, while the numerator is skew-symmetric ($\delta_i - \delta_j = -(\delta_j - \delta_i)$). Therefore, $\Gamma_{ij} = -\Gamma_{ji}$, which implies:
+\begin{equation}
+\sum_{i=1}^{n}\sum_{j=1}^{n} \Gamma_{ij} = \mathbf{0}_d.
+\end{equation}
+Substituting these simplifications into \eqref{eq:centroid_diff} yields the decoupled centroid dynamics:
+\begin{equation}
+\dot{c}(t) = -c(t) + r(t) + \dot{r}(t) - \zeta(t).
+\end{equation}
+Subtracting $\dot{r}(t)$ from both sides, the centroid error dynamics satisfy:
+\begin{equation}
+\dot{\sigma}(t) = -\sigma(t) - \zeta(t).
+\label{eq:sigma_dyn}
+\end{equation}
+Because the system \eqref{eq:sigma_dyn} is decoupled across coordinates, we consider the scalar Lyapunov function for the $s$-th component ($s \in \{1, \dots, d\}$):
+\begin{equation}
+V_s(\sigma_s) = \frac{1}{2}\sigma_s^2(t).
+\end{equation}
+Taking the time derivative along the trajectories of \eqref{eq:sigma_dyn}:
+\begin{equation}
+\dot{V}_s = \sigma_s \dot{\sigma}_s = -\sigma_s^2 - \sigma_s \operatorname{sign}(\sigma_s)|\sigma_s|^\beta = -2V_s - 2^{\frac{\beta+1}{2}} V_s^{\frac{\beta+1}{2}}.
+\end{equation}
+Since $V_s \ge 0$, we establish the differential inequality:
+\begin{equation}
+\dot{V}_s \le -2^{\frac{\beta+1}{2}} V_s^{\frac{\beta+1}{2}} = -\alpha V_s^\eta,
+\end{equation}
+where $\eta = \frac{\beta+1}{2} \in (0.5, 1)$ and $\alpha = 2^\eta > 0$. Solving this differential inequality by separation of variables yields:
+\begin{equation}
+V_s^{1-\eta}(t) \le V_s^{1-\eta}(t_0) - \alpha(1-\eta)(t - t_0).
+\end{equation}
+Hence, $V_s(t)$ reaches zero identically at the finite time:
+\begin{equation}
+\tau_s = t_0 + \frac{V_s^{1-\eta}(t_0)}{\alpha(1-\eta)} = t_0 + \frac{|\sigma_s(t_0)|^{1-\beta}}{1-\beta}.
+\label{eq:tau_c}
+\end{equation}
+Defining the global finite settling time $\tau_c = \max_{s=1,\dots,d} \tau_s$, we have $\sigma(t) \equiv \mathbf{0}_d$ and $\zeta(t) \equiv \mathbf{0}_d$ for all $t \ge \tau_c$.
+\end{proof}
+
+\section{Global Exponential Formation Stabilization}
+
+We now analyze the nominal tracking error dynamics. By Lemma 1 no assumption on the centroid channel is needed, so the analysis runs from the initial time $t_0$ rather than from $\tau_c$.
+
+\begin{proposition}[Exponential Formation Convergence]
+Under the nominal hybrid dynamics \eqref{eq:hybrid_dynamics} with $w_i(t) \equiv \mathbf{0}_d$ and the centering condition \eqref{eq:centering_condition}, the collective formation tracking error vector $\boldsymbol{\delta}(t) = [\delta_1^T, \dots, \delta_n^T]^T \in \mathbb{R}^{nd}$ converges globally and exponentially to zero from the initial time:
+\begin{equation}
+\|\boldsymbol{\delta}(t)\| \le \|\boldsymbol{\delta}(t_0)\| e^{-(t - t_0)}, \quad \forall t \ge t_0.
+\label{eq:prop2_bound}
+\end{equation}
+Consequently, $\lim_{t \to \infty} x_i(t) - p_i(t) - r(t) = \mathbf{0}_d$ for all $i \in \{1, \dots, n\}$.
+\end{proposition}
+
+\begin{proof}
+Setting $w_i \equiv \mathbf{0}_d$ in \eqref{eq:error_dynamics}, the nominal error dynamics for each agent $i \in \{1, \dots, n\}$ are
+\begin{equation}
+\dot{\delta}_i(t) = -\delta_i(t) - \zeta(t) - \frac{M}{n}\sum_{j=1}^{n} \frac{\delta_i(t) - \delta_j(t)}{\|x_i(t) - x_j(t)\|^\nu + \varepsilon}.
+\end{equation}
+The sliding-mode term $\zeta(t)$ is retained; no property of $\sigma(t)$ is assumed, so what follows is valid for every $t \ge t_0$.
+Consider the total formation Lyapunov function:
+\begin{equation}
+V_\delta(\boldsymbol{\delta}) = \frac{1}{2}\sum_{i=1}^{n} \|\delta_i(t)\|^2 = \frac{1}{2}\|\boldsymbol{\delta}(t)\|^2.
+\end{equation}
+Evaluating the time derivative $\dot{V}_\delta$ along the system trajectories:
+\begin{align}
+\dot{V}_\delta &= \sum_{i=1}^{n} \delta_i^T(t) \dot{\delta}_i(t) \nonumber \\
+&= -\sum_{i=1}^{n} \|\delta_i(t)\|^2 - \sum_{i=1}^{n}\delta_i^T(t)\zeta(t) - \frac{1}{n}\sum_{i=1}^{n}\sum_{j=1}^{n} \frac{\delta_i^T(t) M (\delta_i(t) - \delta_j(t))}{\|x_i(t) - x_j(t)\|^\nu + \varepsilon} \nonumber \\
+&= -\sum_{i=1}^{n} \|\delta_i(t)\|^2 - n\sum_{s=1}^{d}|\sigma_s(t)|^{1+\beta} - \frac{\Omega}{n},
+\label{eq:vdelta_dot_expanded}
+\end{align}
+where the $\zeta$ term has been evaluated with \eqref{eq:zeta_dissipative} and $\Omega$ denotes the double sum, examined next.
+Let $\Omega = \sum_{i=1}^{n}\sum_{j=1}^{n} \frac{\delta_i^T M (\delta_i - \delta_j)}{\|x_i - x_j\|^\nu + \varepsilon}$. By swapping the dummy summation indices $i$ and $j$, and using the symmetry $\|x_i - x_j\| = \|x_j - x_i\|$, we rewrite:
+\begin{equation}
+\Omega = \sum_{j=1}^{n}\sum_{i=1}^{n} \frac{\delta_j^T M (\delta_j - \delta_i)}{\|x_j - x_i\|^\nu + \varepsilon} = -\sum_{i=1}^{n}\sum_{j=1}^{n} \frac{\delta_j^T M (\delta_i - \delta_j)}{\|x_i - x_j\|^\nu + \varepsilon}.
+\end{equation}
+Averaging both representations yields the symmetric pairwise quadratic form:
+\begin{equation}
+\Omega = \frac{1}{2}\sum_{i=1}^{n}\sum_{j=1}^{n} \frac{(\delta_i(t) - \delta_j(t))^T M (\delta_i(t) - \delta_j(t))}{\|x_i(t) - x_j(t)\|^\nu + \varepsilon}.
+\end{equation}
+Since $M > 0$, we have $(\delta_i - \delta_j)^T M (\delta_i - \delta_j) \ge \lambda_{\min}(M)\|\delta_i - \delta_j\|^2 \ge 0$. Because the denominator satisfies $\|x_i - x_j\|^\nu + \varepsilon \ge \varepsilon > 0$, it follows that $\Omega \ge 0$. 
+
+In \eqref{eq:vdelta_dot_expanded} the second term is non-positive by Lemma 1 and the third is non-positive because $\Omega \ge 0$. Discarding both:
+\begin{equation}
+\dot{V}_\delta \le -\sum_{i=1}^{n} \|\delta_i(t)\|^2 = -2 V_\delta(t).
+\end{equation}
+Applying the comparison principle, we integrate over $[t_0, t]$:
+\begin{equation}
+V_\delta(t) \le V_\delta(t_0) e^{-2(t - t_0)}.
+\end{equation}
+Recalling that $V_\delta(t) = \frac{1}{2}\|\boldsymbol{\delta}(t)\|^2$, taking the square root gives:
+\begin{equation}
+\|\boldsymbol{\delta}(t)\| \le \|\boldsymbol{\delta}(t_0)\| e^{-(t - t_0)}, \quad \forall t \ge t_0.
+\end{equation}
+Since $\|\delta_i(t)\| \le \|\boldsymbol{\delta}(t)\|$ for every individual agent, every $\delta_i(t)$ decays exponentially to zero at a rate of at least $1$.
+\end{proof}
+
+\begin{corollary}[Deterministic Acceptance Time for Physical Docking]
+Let $\varepsilon_{\text{tol}} > 0$ denote an arbitrary user-specified acceptance tolerance radius (e.g., physical docking socket clearance or payload gripper margin). All individual tracking errors satisfy $\|\delta_i(t)\| \le \varepsilon_{\text{tol}}$ for all $t \ge T_{\text{dock}}$, where the deterministic finite docking time is explicitly given by:
+\begin{equation}
+T_{\text{dock}} = t_0 + \max\left(0, \; \ln\left(\frac{\|\boldsymbol{\delta}(t_0)\|}{\varepsilon_{\text{tol}}}\right)\right).
+\label{eq:t_dock}
+\end{equation}
+\end{corollary}
+
+\begin{proof}
+From Proposition 2, for any agent $i \in \{1, \dots, n\}$ and $t \ge t_0$:
+\begin{equation}
+\|\delta_i(t)\| \le \|\boldsymbol{\delta}(t)\| \le \|\boldsymbol{\delta}(t_0)\| e^{-(t - t_0)}.
+\end{equation}
+To guarantee that $\|\delta_i(t)\| \le \varepsilon_{\text{tol}}$, it suffices to enforce:
+\begin{equation}
+\|\boldsymbol{\delta}(t_0)\| e^{-(t - t_0)} \le \varepsilon_{\text{tol}} \implies e^{-(t - t_0)} \le \frac{\varepsilon_{\text{tol}}}{\|\boldsymbol{\delta}(t_0)\|}.
+\end{equation}
+If $\|\boldsymbol{\delta}(t_0)\| \le \varepsilon_{\text{tol}}$, the condition is satisfied at $t = t_0$. Otherwise, taking the natural logarithm:
+\begin{equation}
+-(t - t_0) \le \ln\left(\frac{\varepsilon_{\text{tol}}}{\|\boldsymbol{\delta}(t_0)\|}\right) = -\ln\left(\frac{\|\boldsymbol{\delta}(t_0)\|}{\varepsilon_{\text{tol}}}\right) \implies t \ge t_0 + \ln\left(\frac{\|\boldsymbol{\delta}(t_0)\|}{\varepsilon_{\text{tol}}}\right).
+\end{equation}
+Combining both cases proves the claim. Note that the docking guarantee is thus available immediately, without waiting for the centroid to settle.
+\end{proof}
+
+\section{Input-to-State Stability (ISS) Under Bounded Disturbances}
+
+In practical deployments, agents are subject to non-ideal conditions such as unmodeled dynamics, friction variations, and actuator noise. We now analyze the system under persistent, uniformly bounded disturbances $\|w_i(t)\| \le \bar{w}$.
+
+\begin{proposition}[Robust Formation Tracking and ISS Invariant Set]
+Consider the perturbed hybrid error dynamics \eqref{eq:error_dynamics} with $\|w_i(t)\| \le \bar{w}$ for all $t \ge t_0$, under the centering condition \eqref{eq:centering_condition}. Then for \emph{all} $t \ge t_0$ --- with no assumption on the centroid channel --- the collective tracking error $\boldsymbol{\delta}(t)$ is Input-to-State Stable (ISS) with respect to the disturbance input $w(t)$ and satisfies:
+\begin{equation}
+\|\boldsymbol{\delta}(t)\| \le \|\boldsymbol{\delta}(t_0)\| e^{-(t - t_0)} + \sqrt{n}\bar{w}\left(1 - e^{-(t - t_0)}\right), \quad \forall t \ge t_0.
+\label{eq:iss_trajectory_bound}
+\end{equation}
+Consequently, the system possesses the forward-invariant disturbance hyper-ball:
+\begin{equation}
+\mathcal{B}_{\text{ISS}} = \left\{ \boldsymbol{\delta} \in \mathbb{R}^{nd} \;\middle|\; \|\boldsymbol{\delta}\| \le \sqrt{n}\bar{w} \right\},
+\label{eq:b_iss_def}
+\end{equation}
+which every trajectory enters in finite time and never leaves.
+\end{proposition}
+
+\begin{proof}
+Let $t \ge t_0$. We retain the sliding-mode term $\zeta(t)$ throughout; no property of $\sigma(t)$ is invoked. Taking the time derivative of $V_\delta(\boldsymbol{\delta}) = \frac{1}{2}\sum_{i=1}^{n}\|\delta_i\|^2$ along the full perturbed dynamics \eqref{eq:error_dynamics}:
+\begin{align}
+\dot{V}_\delta &= \sum_{i=1}^{n}\delta_i^T(t) \left[ -\delta_i(t) - \zeta(t) - \frac{M}{n}\sum_{j=1}^{n}\frac{\delta_i(t) - \delta_j(t)}{\|x_i(t) - x_j(t)\|^\nu + \varepsilon} + w_i(t) \right] \nonumber \\
+&= -\sum_{i=1}^{n}\|\delta_i(t)\|^2 \; \underbrace{-\, n\sum_{s=1}^{d}|\sigma_s(t)|^{1+\beta}}_{\le\, 0 \;\text{(Lemma 1)}} \; \underbrace{-\, \frac{1}{2n}\sum_{i=1}^{n}\sum_{j=1}^{n}\frac{(\delta_i - \delta_j)^T M (\delta_i - \delta_j)}{\|x_i - x_j\|^\nu + \varepsilon}}_{\le\, 0 \;\text{(since } M \succ 0)} \; + \sum_{i=1}^{n}\delta_i^T(t) w_i(t),
+\end{align}
+where the $\zeta$ contribution has been evaluated using \eqref{eq:zeta_dissipative}. Both bracketed terms are non-positive, so:
+\begin{equation}
+\dot{V}_\delta \le -2 V_\delta + \sum_{i=1}^{n} \|\delta_i(t)\| \|w_i(t)\| \le -2 V_\delta + \bar{w}\sum_{i=1}^{n}\|\delta_i(t)\|.
+\label{eq:vdot_pert_intermediate}
+\end{equation}
+To relate the sum of norms $\sum_{i=1}^{n}\|\delta_i\|$ to the Lyapunov function $V_\delta$, we apply the Cauchy--Schwarz inequality in $\mathbb{R}^n$ between the norm vector $u = [\|\delta_1\|, \dots, \|\delta_n\|]^T$ and the vector of ones $\mathbf{1}_n = [1, \dots, 1]^T$:
+\begin{equation}
+\sum_{i=1}^{n}\|\delta_i\| = \mathbf{1}_n^T u \le \|\mathbf{1}_n\|_2 \|u\|_2 = \sqrt{n}\sqrt{\sum_{i=1}^{n}\|\delta_i\|^2} = \sqrt{n}\|\boldsymbol{\delta}\|.
+\end{equation}
+Since $\|\boldsymbol{\delta}\| = \sqrt{2V_\delta}$, we obtain the strict inequality:
+\begin{equation}
+\sum_{i=1}^{n}\|\delta_i(t)\| \le \sqrt{2n V_\delta(t)}.
+\end{equation}
+Substituting this bound into \eqref{eq:vdot_pert_intermediate} yields:
+\begin{equation}
+\dot{V}_\delta \le -2 V_\delta + \sqrt{2n}\bar{w}\sqrt{V_\delta}.
+\label{eq:vdot_iss_inequality}
+\end{equation}
+
+\paragraph{Step 1: Square-Root Transformation.}
+For $V_\delta > 0$, define the auxiliary scalar variable $W(t) = \sqrt{V_\delta(t)} = \frac{1}{\sqrt{2}}\|\boldsymbol{\delta}(t)\|$. Differentiating $W(t)$ with respect to time:
+\begin{equation}
+\dot{W}(t) = \frac{\dot{V}_\delta(t)}{2\sqrt{V_\delta(t)}}.
+\end{equation}
+Dividing \eqref{eq:vdot_iss_inequality} by $2\sqrt{V_\delta}$ gives:
+\begin{equation}
+\dot{W}(t) \le \frac{-2V_\delta + \sqrt{2n}\bar{w}\sqrt{V_\delta}}{2\sqrt{V_\delta}} = -W(t) + \sqrt{\frac{n}{2}}\bar{w}.
+\label{eq:w_diff_ineq}
+\end{equation}
+Multiplying \eqref{eq:w_diff_ineq} by the integrating factor $e^t$ and integrating from $t_0$ to $t$:
+\begin{equation}
+W(t) \le W(t_0) e^{-(t - t_0)} + \sqrt{\frac{n}{2}}\bar{w}\left(1 - e^{-(t - t_0)}\right).
+\end{equation}
+Multiplying through by $\sqrt{2}$ yields the state error norm bound \eqref{eq:iss_trajectory_bound}:
+\begin{equation}
+\|\boldsymbol{\delta}(t)\| \le \|\boldsymbol{\delta}(t_0)\| e^{-(t - t_0)} + \sqrt{n}\bar{w}\left(1 - e^{-(t - t_0)}\right).
+\end{equation}
+
+\paragraph{Step 2: Invariance and Attractivity of $\mathcal{B}_{\text{ISS}}$.}
+Rewriting the Lyapunov derivative bound \eqref{eq:vdot_iss_inequality} directly in terms of $\|\boldsymbol{\delta}\|$:
+\begin{equation}
+\dot{V}_\delta \le -\|\boldsymbol{\delta}\| \left( \|\boldsymbol{\delta}\| - \sqrt{n}\bar{w} \right).
+\end{equation}
+We evaluate the vector field across three distinct state-space regions:
+\begin{enumerate}
+    \item \textbf{Outside $\mathcal{B}_{\text{ISS}}$ ($\|\boldsymbol{\delta}\| > \sqrt{n}\bar{w}$):} The term $(\|\boldsymbol{\delta}\| - \sqrt{n}\bar{w}) > 0$, which ensures $\dot{V}_\delta < 0$ strictly. The stabilizing linear state feedback dominates the disturbance, forcing the error norm $\|\boldsymbol{\delta}(t)\|$ to strictly decrease.
+    \item \textbf{On the Boundary $\partial\mathcal{B}_{\text{ISS}}$ ($\|\boldsymbol{\delta}\| = \sqrt{n}\bar{w}$):} We have $\dot{V}_\delta \le 0$. Because the gradient $\nabla V_\delta(\boldsymbol{\delta}) = \boldsymbol{\delta}$ points outward, $\dot{V}_\delta \le 0$ proves that the vector field never points outside the boundary surface. Hence, $\mathcal{B}_{\text{ISS}}$ is a forward-invariant set.
+    \item \textbf{Inside $\mathcal{B}_{\text{ISS}}$ ($\|\boldsymbol{\delta}\| < \sqrt{n}\bar{w}$):} The sign of $\dot{V}_\delta$ is indefinite. Persistent disturbances can inject energy when tracking errors are small ($\boldsymbol{\delta} \approx \mathbf{0}_{nd}$), causing bounded chattering. However, because $\dot{V}_\delta \le 0$ on $\partial\mathcal{B}_{\text{ISS}}$, trajectories cannot escape $\mathcal{B}_{\text{ISS}}$.
+\end{enumerate}
+Taking the limit as $t \to \infty$ in \eqref{eq:iss_trajectory_bound} establishes ultimate boundedness:
+\begin{equation}
+\limsup_{t \to \infty} \|\boldsymbol{\delta}(t)\| \le \sqrt{n}\bar{w}.
+\end{equation}
+\end{proof}
+
+\begin{corollary}[Finite Entrance Time into the $\varepsilon_{\text{tol}}$-Neighborhood of $\mathcal{B}_{\text{ISS}}$]
+For any positive clearance margin $\varepsilon_{\text{tol}} > 0$, the collective tracking error $\boldsymbol{\delta}(t)$ enters the neighborhood $\mathcal{B}_{\varepsilon} = \left\{ \boldsymbol{\delta} \;\middle|\; \|\boldsymbol{\delta}\| \le \sqrt{n}\bar{w} + \varepsilon_{\text{tol}} \right\}$ at or before the finite timestamp:
+\begin{equation}
+T_{\text{enter}} = t_0 + \max\left(0, \; \ln\left(\frac{\max(0, \|\boldsymbol{\delta}(t_0)\| - \sqrt{n}\bar{w})}{\varepsilon_{\text{tol}}}\right)\right).
+\label{eq:t_enter}
+\end{equation}
+\end{corollary}
+
+\begin{proof}
+From Proposition 3, for all $t \ge t_0$:
+\begin{equation}
+\|\boldsymbol{\delta}(t)\| \le \sqrt{n}\bar{w} + \left( \|\boldsymbol{\delta}(t_0)\| - \sqrt{n}\bar{w} \right) e^{-(t - t_0)}.
+\end{equation}
+If $\|\boldsymbol{\delta}(t_0)\| \le \sqrt{n}\bar{w} + \varepsilon_{\text{tol}}$, the state is already within $\mathcal{B}_\varepsilon$ at $t = t_0$. If $\|\boldsymbol{\delta}(t_0)\| > \sqrt{n}\bar{w} + \varepsilon_{\text{tol}}$, setting the upper bound less than or equal to $\sqrt{n}\bar{w} + \varepsilon_{\text{tol}}$ gives:
+\begin{equation}
+\left( \|\boldsymbol{\delta}(t_0)\| - \sqrt{n}\bar{w} \right) e^{-(t - t_0)} \le \varepsilon_{\text{tol}} \implies t \ge t_0 + \ln\left(\frac{\|\boldsymbol{\delta}(t_0)\| - \sqrt{n}\bar{w}}{\varepsilon_{\text{tol}}}\right),
+\end{equation}
+which completes the proof.
+\end{proof}
+
+\subsection{Centroid Robustness: Super-Linear Attenuation of the Sliding Term}
+
+Proposition 3 bounds the \emph{formation} channel, and does so linearly in $\bar{w}$. The \emph{centroid} channel --- which carries the mission-level tracking objective --- is protected considerably more strongly, because $\zeta$ acts on it directly rather than through the collective error.
+
+\begin{proposition}[Centroid Disturbance Ball]
+Consider \eqref{eq:hybrid_dynamics} with $\|w_i(t)\| \le \bar{w}$, $\bar{w} > 0$, under the centering condition \eqref{eq:centering_condition}. Let $\bar{w}_c(t) = \frac{1}{n}\sum_{i=1}^{n} w_i(t)$ denote the mean disturbance, so that $\|\bar{w}_c(t)\| \le \bar{w}$ and hence $|\bar{w}_{c,s}(t)| \le \bar{w}$ for each $s$. Then:
+\begin{enumerate}
+    \item[(i)] The centroid error obeys the perturbed, coordinate-decoupled dynamics
+    \begin{equation}
+    \dot{\sigma}_s(t) = -\sigma_s(t) - \operatorname{sign}(\sigma_s(t))|\sigma_s(t)|^\beta + \bar{w}_{c,s}(t), \qquad s \in \{1,\dots,d\}.
+    \label{eq:sigma_dyn_pert}
+    \end{equation}
+    \item[(ii)] The set $\mathcal{S} = \left\{ \sigma \in \mathbb{R}^d \;\middle|\; |\sigma_s| \le \bar{w}^{1/\beta}, \; s = 1,\dots,d \right\}$ is forward invariant.
+    \item[(iii)] For every $\mu \in (0,1)$, $\sigma(t)$ enters the set $\mathcal{S}_\mu = \left\{ \sigma \;\middle|\; |\sigma_s| \le (\bar{w}/\mu)^{1/\beta} \right\}$ no later than the finite time
+    \begin{equation}
+    T_\sigma(\mu) = t_0 + \max_{s=1,\dots,d} \frac{|\sigma_s(t_0)|^{1-\beta}}{(1-\mu)(1-\beta)}.
+    \label{eq:t_sigma}
+    \end{equation}
+    \item[(iv)] Consequently $\limsup_{t \to \infty} |\sigma_s(t)| \le \bar{w}^{1/\beta}$ for every $s$, and $\limsup_{t \to \infty} \|\sigma(t)\| \le \sqrt{d}\,\bar{w}^{1/\beta}$.
+\end{enumerate}
+\label{prop:centroid_ball}
+\end{proposition}
+
+\begin{proof}
+\textbf{(i)} Averaging \eqref{eq:hybrid_dynamics} over $i$ and repeating the two simplifications of Proposition 1 --- the centering condition \eqref{eq:centering_condition} for the bias terms, and the skew-symmetry $\Gamma_{ij} = -\Gamma_{ji}$ for the double sum --- leaves the disturbance mean as the only additional contribution:
+\begin{equation}
+\dot{c}(t) = -c(t) + r(t) + \dot{r}(t) - \zeta(t) + \bar{w}_c(t),
+\end{equation}
+and subtracting $\dot{r}(t)$ gives $\dot{\sigma} = -\sigma - \zeta + \bar{w}_c$, which is \eqref{eq:sigma_dyn_pert} componentwise.
+
+\textbf{(ii)} Take $V_s = \frac{1}{2}\sigma_s^2$. Along \eqref{eq:sigma_dyn_pert},
+\begin{equation}
+\dot{V}_s = -\sigma_s^2 - |\sigma_s|^{1+\beta} + \sigma_s \bar{w}_{c,s} \le -\sigma_s^2 - |\sigma_s|\left(|\sigma_s|^\beta - \bar{w}\right).
+\label{eq:vs_pert}
+\end{equation}
+On the boundary $|\sigma_s| = \bar{w}^{1/\beta}$ we have $|\sigma_s|^\beta = \bar{w}$, so the second term vanishes and
+\begin{equation}
+\dot{V}_s \le -\sigma_s^2 = -\bar{w}^{2/\beta} < 0 .
+\end{equation}
+The vector field therefore points strictly inward on $\partial\mathcal{S}$, and since \eqref{eq:sigma_dyn_pert} is decoupled across $s$, the box $\mathcal{S}$ is forward invariant.
+
+\textbf{(iii)} Suppose $|\sigma_s| \ge (\bar{w}/\mu)^{1/\beta}$, equivalently $\bar{w} \le \mu|\sigma_s|^\beta$. Substituting into \eqref{eq:vs_pert}:
+\begin{equation}
+\dot{V}_s \le -\sigma_s^2 - |\sigma_s|^{1+\beta} + \mu|\sigma_s|^{1+\beta} = -2V_s - (1-\mu)\,2^{\frac{\beta+1}{2}} V_s^{\frac{\beta+1}{2}} \le -(1-\mu)\,\alpha\, V_s^{\eta},
+\end{equation}
+with $\eta = \frac{\beta+1}{2}$ and $\alpha = 2^\eta$ exactly as in Proposition 1. This is the differential inequality of Proposition 1 with $\alpha$ replaced by $(1-\mu)\alpha$; repeating the separation-of-variables step yields \eqref{eq:t_sigma}. Outside $\mathcal{S}_\mu$ the decay is therefore of finite-time type, so $\mathcal{S}_\mu$ is reached in finite time and, by the same argument as in (ii) applied at radius $(\bar{w}/\mu)^{1/\beta}$, not left thereafter.
+
+\textbf{(iv)} Letting $\mu \uparrow 1$ in (iii) and combining with the forward invariance of $\mathcal{S}$ from (ii) gives the component-wise limit; the norm bound follows from $\|\sigma\| \le \sqrt{d}\max_s|\sigma_s|$.
+\end{proof}
+
+\section{Summary of Theoretical Properties}
+
+\begin{table}[htbp]
+\centering
+\caption{Summary of Swarm Mathematical Properties under the Hybrid Kinematic Model}
+\vspace{0.2cm}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Property} & \textbf{State Variable} & \textbf{Convergence Type} & \textbf{Analytical Bound} \\ \midrule
+Centroid Tracking & $\sigma(t) = c(t) - r(t)$ & Finite-Time ($\tau_c$) & $\tau_c = \max_s \left(t_0 + \frac{|\sigma_s(t_0)|^{1-\beta}}{1-\beta}\right)$ \\
+Nominal Formation & $\boldsymbol{\delta}(t)$ ($w_i \equiv \mathbf{0}$) & Exponential ($\to \mathbf{0}$) & $\|\boldsymbol{\delta}(t)\| \le \|\boldsymbol{\delta}(t_0)\| e^{-(t-t_0)}$ \\
+Physical Docking & $\|\delta_i(t)\| \le \varepsilon_{\text{tol}}$ & Deterministic Time ($T_{\text{dock}}$) & $T_{\text{dock}} = t_0 + \ln(\|\boldsymbol{\delta}(t_0)\| / \varepsilon_{\text{tol}})$ \\
+Perturbed Formation & $\boldsymbol{\delta}(t)$ ($\|w_i\| \le \bar{w}$) & ISS / Invariant Hyper-ball & $\mathcal{B}_{\text{ISS}} = \{\boldsymbol{\delta} \mid \|\boldsymbol{\delta}\| \le \sqrt{n}\bar{w}\}$ \\
+Perturbed Centroid & $\sigma(t)$ ($\|w_i\| \le \bar{w}$) & Invariant Ball (super-linear) & $\mathcal{S} = \{\sigma \mid |\sigma_s| \le \bar{w}^{1/\beta}\}$ \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\end{document}
