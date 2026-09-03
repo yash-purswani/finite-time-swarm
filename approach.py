@@ -40,21 +40,6 @@ sum(S) = d_standoff * sum(N) is generally *nonzero*, the swarm's own
 centroid is naturally offset from the CoG while alpha < 1 and slides onto
 the CoG exactly as alpha -> 1 -- i.e. "the centroid approaches the CoG" is
 not a separate mechanism, it falls straight out of this same schedule.
-
-THEORETICAL NOTE (why finite-time guarantees are preserved)
--------------------------------------------------------------
-Let delta_i(t) = x_i(t) - p_i(t) - r(t). Differentiating and substituting the
-feedforward-augmented law (see dynamics.state_derivative, which now adds a
-+pdot_i(t) term):
-
-    xdot_i = -(x_i - p_i(t)) + r(t) + rdot(t) + pdot_i(t) - zeta(t) - coupling_i
-           => ddelta_i/dt = -delta_i(t) - zeta(t) - coupling_i(t)
-
-which is *algebraically identical* to the constant-p_i closed-loop error
-equation (independent of how p_i(t) is chosen), as long as pdot_i(t) is fed
-forward exactly. The finite-time convergence result therefore transfers
-without modification -- p_i(t) need only be continuously differentiable with
-bounded derivative, both of which this smoothstep schedule satisfies exactly.
 """
 from __future__ import annotations
 
