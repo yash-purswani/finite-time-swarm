@@ -1,43 +1,52 @@
-"""F5 -- time-varying formations, as an animation.
+"""F2 -- formation reconfiguration: ring -> wedge -> star -> arrow.
 
-The static five-panel figure has been replaced by a movie, and the movie is the
-only output: the morph is a *temporal* claim, and nothing about it survives a
-still. ``figures/f5_morphing.mp4`` plays the swarm through hexagon -> line -> V ->
-grid while it tracks r(t), with the two error channels drawn live alongside:
+The swarm tracks r(t) while its template changes three times. The paper figure
+``figures/f2_morphing.png`` draws every agent's trajectory dashed, with the agents
+(filled) and their stations p_i(t) + r(t) (hollow) marked at one instant in each
+formation.
 
-  * left, in a camera that follows r(t): agent trails, the current formation slots
-    p_i(t) + r(t), and the reference itself;
-  * right, top: ||sigma(t)|| -- the centroid never notices a morph. Because every
-    shape is centred and the blend between two centred shapes is affine,
-    sum_i pdot_i(t) = 0 holds *throughout* the morph, not merely at its endpoints,
-    so reshaping is invisible to the centroid channel;
-  * right, bottom: ||delta(t)|| -- exponential re-convergence, undisturbed by any
-    morph, because the pdot_i feedforward of Eq. (8) makes reshaping free.
+Which agent takes which slot is free, so it is fixed by the Hungarian algorithm
+(linear_sum_assignment): from the initial positions onto the first template, then
+slot to slot at every switch. The blend between two templates is affine and
+synchronised, so relative to r(t) the stations move on straight lines, and the
+minimum-squared-travel assignment keeps those paths apart. It is a heuristic for
+the agents: they follow their stations only up to delta_i, and the coupling acts
+on delta_i - delta_j, so it supplies no repulsion. The minimum inter-agent
+distance is printed with and without the assignment.
 
-Morph windows are shaded in both traces.
-
-Two quantities a movie cannot show are measured and printed instead: the peak
-||sigma|| after tau_c across all three morphs, and the peak ||delta|| during a
-single morph as a function of its duration, with and without the feedforward.
-
-The two necessity ablations live in ``verify.py`` now that they have no panel:
-``check_centering_condition`` and ``check_centering_offset`` for Eq. (4), and the
-feedforward ablation in the printed sweep below.
+Also printed: the peak ||sigma|| after tau_c across the three morphs, and the peak
+||delta|| during a single morph as a function of its duration, with and without
+the pdot feedforward. ``--movie`` also renders the animation
+``figures/f5_morphing.mp4``.
 """
+
+import sys
 
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
 
 from finite_time import common, metrics, style
-from finite_time.formations import grid, hexagon, line, morph_schedule, vee
+from scipy.spatial import ConvexHull
+
+from finite_time.formations import (arrow, hexagon, line, morph_schedule,
+                                    reassign_from_state, star, wedge)
 from finite_time.integrate import simulate
 
-L = 4.0
+N_M = common.N          # the same swarm as every other experiment
+L = 5.0                 # the ring is the nominal template of Table I
 MORPH_TIME = 4.0
-SWITCH = [8.0, 16.0, 24.0]
-T_END = 34.0
-NAMES = ["hexagon", "line", "V", "grid"]
+SWITCH = [14.0, 26.0, 38.0]
+T_END = 52.0
+NAMES = ["ring", "wedge", "star", "arrow"]
+FILLED = {"wedge"}      # outlined by its hull rather than through its rows
+DT = 0.002              # output step; fine enough for the separation scan
+
+# Start, then one settled instant per shape; the start in ink, one hue per shape.
+SNAPS = [(0.0, "initial"), (13.0, NAMES[0]), (25.0, NAMES[1]),
+         (37.0, NAMES[2]), (50.0, NAMES[3])]
+TRAJ = style.AXIS       # light, so the snapshots carry the figure
+SNAP_COLORS = [style.INK_2] + style.SERIES
 
 FPS = 25
 SPEEDUP = 2.0           # 34 s of simulation in 17 s of video
@@ -45,10 +54,31 @@ TRAIL = 2.5             # seconds of trail behind each agent
 CAM_HALF = 9.0          # half-width of the window that follows r(t)
 
 
-def _schedule():
-    shapes = [hexagon(common.N, L), line(common.N, L),
-              vee(common.N, L), grid(common.N, L)]
-    return morph_schedule(shapes, SWITCH, MORPH_TIME)
+def _templates():
+    """The four shapes; hexagon() with n points is the ring.
+
+    Rows are in outline order except for the filled wedge.
+    """
+    return [hexagon(N_M, L), wedge(N_M, 0.6 * L), star(N_M, 1.1 * L),
+            arrow(N_M, L)]
+
+
+def _schedule(X0=None, relabel=True):
+    """Morph schedule; with ``X0`` the first template is also assigned to the agents."""
+    shapes = _templates()
+    if X0 is not None:
+        r0 = common.nominal_config(n=N_M).r_fn(0.0)
+        shapes[0] = reassign_from_state(X0, shapes[0], r0)
+    return morph_schedule(shapes, SWITCH, MORPH_TIME, relabel=relabel)
+
+
+def _min_separation(t, X, t_from=0.0):
+    """Smallest ||x_i - x_j|| over all pairs and all t >= t_from, and when."""
+    iu = np.triu_indices(X.shape[1], 1)
+    D = np.linalg.norm(X[:, iu[0]] - X[:, iu[1]], axis=2).min(axis=1)
+    D = np.where(t >= t_from, D, np.inf)
+    k = int(np.argmin(D))
+    return float(D[k]), float(t[k])
 
 
 def _shade(ax):
@@ -66,8 +96,63 @@ def _phase_name(t: float) -> str:
     return NAMES[-1]
 
 
+def _figure(t, X, cfg):
+    """Trajectories (dashed) with agents and stations, coloured by formation."""
+    # Height matched to the equal-aspect data box, so no slack opens above it.
+    fig, ax = plt.subplots(figsize=(style.COL2_W, 2.5))
+    R = np.array([cfg.r_fn(float(s)) for s in t])
+    ax.plot(R[:, 0], R[:, 1], color=style.INK, lw=0.6, zorder=1)
+    for i in range(cfg.n):
+        ax.plot(X[:, i, 0], X[:, i, 1], color=TRAJ, lw=0.6,
+                linestyle=(0, (3.0, 1.8)), zorder=2)
+
+    templates = _templates()
+    for k, ((ts, name), col) in enumerate(zip(SNAPS, SNAP_COLORS)):
+        j = int(np.argmin(np.abs(t - ts)))
+        r = np.asarray(cfg.r_fn(ts), dtype=float)
+        S = np.asarray(cfg.P_fn(ts)) + r
+        # At t_0 the agents are still far from their stations, whose rings would
+        # only collide with the first settled snapshot; the agents alone are drawn.
+        # The assignment permutes the slots, so the outline is traced through the
+        # template in its own (outline) order rather than through S.
+        if ts > t[0]:
+            P = templates[k - 1]
+            if name in FILLED:
+                P = P[ConvexHull(P).vertices]
+            O = np.vstack([P, P[:1]]) + r
+            ax.plot(O[:, 0], O[:, 1], color=col, lw=0.7, alpha=0.6, zorder=2.5)
+            ax.scatter(S[:, 0], S[:, 1], s=40, facecolors="none",
+                       edgecolors=col, linewidths=0.8, zorder=3)
+        ax.scatter(X[j, :, 0], X[j, :, 1], s=16, color=col, linewidths=0,
+                   zorder=4, label=f"$t={ts:g}$ s, {name}")
+        ax.scatter([r[0]], [r[1]], marker="+", s=34, color=style.INK,
+                   linewidths=0.9, zorder=5)
+
+    ax.plot([], [], color=TRAJ, lw=0.6, linestyle=(0, (3.0, 1.8)),
+            label="agent trajectories")
+    ax.scatter([], [], s=46, facecolors="none", edgecolors=style.INK_2,
+               linewidths=0.8, label=r"stations $p_i(t)+r(t)$")
+    ax.plot([], [], color=style.INK, lw=0.6, marker="+", ms=5,
+            label="reference $r(t)$")
+    # A figure legend, not an axes one: style.save drops axes legends from the
+    # layout, and the tight crop would then cut one placed outside the axes.
+    fig.legend(loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=4,
+               frameon=False)
+    ax.set_xlabel("$x$")
+    ax.set_ylabel("$y$")
+    y_max = float(np.abs(X[:, :, 1]).max()) + 1.0
+    ax.set_ylim(-y_max, y_max)
+    ax.set_aspect("equal", adjustable="box")
+    # Height matched to the equal-aspect data box (plus the x label), so no slack
+    # opens between the legend and the axes.
+    xr, yr = np.ptp(ax.get_xlim()), np.ptp(ax.get_ylim())
+    fig.set_size_inches(style.COL2_W, 0.5 + (style.COL2_W - 0.5) * yr / xr)
+    style.save(fig, "f2_morphing")
+
+
 def _animate(t_eval, X, sn, dn, tau, P_fn, r_fn):
     """Render the morph movie. Returns the path written."""
+    n = X.shape[1]
     fig = plt.figure(figsize=(style.COL2_W, 3.4), layout="constrained")
     fig.get_layout_engine().set(h_pad=0.08, w_pad=0.10, hspace=0.05, wspace=0.06)
     gs = fig.add_gridspec(2, 5)
@@ -100,10 +185,10 @@ def _animate(t_eval, X, sn, dn, tau, P_fn, r_fn):
 
     # ---- animated artists --------------------------------------------------
     trails = [ax_p.plot([], [], color=style.SERIES[0], lw=0.7, alpha=0.55)[0]
-              for _ in range(common.N)]
-    dots = ax_p.scatter(np.zeros(common.N), np.zeros(common.N), s=22,
+              for _ in range(n)]
+    dots = ax_p.scatter(np.zeros(n), np.zeros(n), s=22,
                         color=style.SERIES[0], zorder=5, linewidths=0)
-    slots = ax_p.scatter(np.zeros(common.N), np.zeros(common.N), s=26,
+    slots = ax_p.scatter(np.zeros(n), np.zeros(n), s=26,
                          facecolors="none", edgecolors=style.SERIES[1],
                          linewidths=0.8, zorder=4)
     ref = ax_p.scatter([0], [0], marker="+", s=44, color=style.INK,
@@ -160,22 +245,36 @@ def _animate(t_eval, X, sn, dn, tau, P_fn, r_fn):
     return out
 
 
-def main() -> dict:
+def main(movie: bool = False) -> dict:
     style.use_paper_style()
-    P_fn, Pdot_fn = _schedule()
-    cfg = common.nominal_config().with_(P_fn=P_fn, Pdot_fn=Pdot_fn)
     Z0 = common.initial_state()
-    t_eval = np.linspace(0, T_END, 3401)
+    P_fn, Pdot_fn = _schedule(Z0.reshape(N_M, common.D))
+    cfg = common.nominal_config().with_(P_fn=P_fn, Pdot_fn=Pdot_fn)
+    t_eval = np.arange(0.0, T_END + 0.5 * DT, DT)
     summary = {}
 
     res = simulate(cfg, Z0, (0, T_END), t_eval=t_eval)
     tau = res.tau_c_measured
     sn = np.linalg.norm(metrics.centroid_error(t_eval, res.X, cfg), axis=1)
     dn = metrics.delta_norm(t_eval, res.X, cfg)
+    _figure(t_eval, res.X, cfg)
 
-    # Ablation 1, drawn live in the movie: without the feedforward the
-    # quasi-steady solution of deltadot = -delta - pdot is delta ~ -pdot, so
-    # ||delta|| tracks ||Pdot||_F through every morph instead of staying at zero.
+    # ---- what the assignment buys: separation with and without it ----------
+    P_na, Pdot_na = _schedule(relabel=False)
+    cfg_na = cfg.with_(P_fn=P_na, Pdot_fn=Pdot_na)
+    res_na = simulate(cfg_na, Z0, (0, T_END), t_eval=t_eval)
+    for key, X in (("assigned", res.X), ("unassigned", res_na.X)):
+        summary[f"sep_{key}"] = _min_separation(t_eval, X)
+        summary[f"sep_{key}_morphs"] = _min_separation(t_eval, X, SWITCH[0])
+    # Compare only while the envelope sits above the solver floor (rtol 1e-10,
+    # atol 1e-12); below it the ratio measures integration error, not the bound.
+    env = dn[0] * np.exp(-t_eval)
+    live = env >= 1e-8
+    summary["envelope_ratio"] = float((dn[live] / env[live]).max())
+
+    # Ablation 1: without the feedforward the quasi-steady solution of
+    # deltadot = -delta - pdot is delta ~ -pdot, so ||delta|| tracks ||Pdot||_F
+    # through every morph instead of staying at zero.
     cfg_np = cfg.with_(use_pdot=False)
     res_np = simulate(cfg_np, Z0, (0, T_END), t_eval=t_eval)
     dn_np = metrics.delta_norm(t_eval, res_np.X, cfg_np)
@@ -191,7 +290,8 @@ def main() -> dict:
     summary["pdot_ablation_floor"] = float(dn_np[during].max())
     summary["pdot_baseline_floor"] = float(dn[during].max())
 
-    _animate(t_eval, res.X, sn, dn, tau, P_fn, cfg.r_fn)
+    if movie:
+        _animate(t_eval, res.X, sn, dn, tau, P_fn, cfg.r_fn)
 
     # ---- cost of a morph vs its duration (printed; no panel) ---------------
     # Start every agent exactly on its slot, so delta(0) = 0 and sigma(0) = 0 and
@@ -220,6 +320,12 @@ def main() -> dict:
     summary["morph_peaks_with_pdot"] = peaks[True]
     summary["morph_peaks_without_pdot"] = peaks[False]
 
+    for key in ("assigned", "unassigned"):
+        (d_all, t_all), (d_m, t_m_) = summary[f"sep_{key}"], summary[f"sep_{key}_morphs"]
+        print(f"    min ||x_i - x_j||, {key:>10}: {d_all:.3f} at t={t_all:.2f} s "
+              f"(t >= {SWITCH[0]:g} s: {d_m:.3f} at t={t_m_:.2f} s)")
+    print(f"    max ||delta|| / envelope (envelope >= 1e-8) : "
+          f"{summary['envelope_ratio']:.4f}")
     print(f"    peak ||sigma|| after tau_c through 3 morphs : {peak:.2e}")
     print("    peak ||delta|| during a single morph, by duration:")
     for Tm, a, b, q in zip(MORPH_TIMES, peaks[True], peaks[False], quasi):
@@ -233,4 +339,4 @@ def main() -> dict:
 
 
 if __name__ == "__main__":
-    main()
+    main(movie="--movie" in sys.argv)

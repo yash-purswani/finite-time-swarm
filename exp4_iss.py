@@ -108,7 +108,7 @@ def main() -> dict:
     env = theory.iss_envelope(t_eval, d_0, 0.0, common.N, WBAR)
     ax_a.semilogy(t_eval, env, **style.bound_style())
     ax_a.axhline(ball, **style.bound_style(color=style.INK, linewidth=0.9))
-    ax_a.plot([], [], label="Eq. (39) envelope", **style.bound_style())
+    ax_a.plot([], [], label="ISS envelope", **style.bound_style())
     ax_a.plot([], [], label=r"$\mathcal{B}_{ISS}$: $\sqrt{n}\,\bar{w}$",
               **style.bound_style(color=style.INK, linewidth=0.9))
     ax_a.set_xlabel("time  $t$  [s]")

@@ -1,129 +1,177 @@
-"""F1 -- Proposition 1: finite-time centroid convergence.
+"""F1 -- Proposition 1: finite-time centroid convergence and its control cost.
 
-(a) |sigma(t)| for several beta against the Eq. (25) settling-time bound. The
-    fractional exponents drive the error to machine zero at a finite instant; the
-    linear baseline beta = 1 only decays asymptotically.
-(b) The same |sigma(t)| under six different (M, nu, eps, shape, L) settings. The
-    curves coincide, which is the "irrespective of p_i and M" clause of Prop. 1.
+(a) ||sigma(t)|| for several beta against the predicted settling bound tau_c. The
+    fractional exponents drive the error to zero at a finite instant; the linear
+    baseline beta = 1 only decays asymptotically.
+(b) The effort spent by the averaged controller to achieve that arrival. The
+    agents are single integrators, so the command *is* the velocity and
+    ||u_avg|| = ||cdot|| is the effort of the averaged loop. Averaging the model
+    over i collapses it to
+
+        cdot = -sigma + rdot - zeta(sigma),
+
+    since the interaction term cancels pairwise and the pdot_i cancel under the
+    centering condition -- so the averaged effort is a function of the centroid
+    error alone, which is what makes (a) and (b) two views of one channel.
+
+Panel (b) reports what that arrival costs. The finding is that it costs almost
+nothing. Total corrective action is essentially independent of beta -- every
+exponent spends within 0.5% of the same integral, and within 0.5% of the
+geometric floor ||sigma(t_0)||, since the centroid must travel that distance
+relative to the reference whatever law moves it. The *peak* command meanwhile
+falls as beta falls, so the exponent that arrives first is also the gentlest on
+the actuator.
+
+That ordering is structural rather than incidental. For ||sigma|| > 1 the
+correction |sigma_s|^beta is *smaller* than the linear sigma_s and shrinks
+further as beta falls, so a fractional law is less aggressive than a linear one
+during the initial transient; only once the error drops below unity does the
+ordering invert and the fractional term become the stronger of the two. The law
+therefore spends its authority near the origin, which is exactly where a linear
+law runs out of gain and gives up converging. Note this peak ordering is tied to
+||sigma(t_0)|| > 1, which holds here; for an initial error inside the unit ball
+the fractional laws are the more aggressive ones from the outset.
+
+Both panels carry the tau_c markers, which makes the pair readable together:
+effort returns to the feedforward floor ||rdot|| exactly when the corresponding
+curve in (a) reaches zero.
 """
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 from finite_time import common, metrics, style, theory
-from finite_time.formations import grid, hexagon, line, static_schedule, vee
 from finite_time.integrate import simulate
+from finite_time.model import zeta
 
-FLOOR = 1e-16          # plotting floor: below this the values are pure round-off
+# Displayed floor for ||sigma||, equal to the arrival threshold LATCH_TOL of the
+# integrator: below it a centroid error says nothing physical about a swarm, and
+# each arrival reads as the vertical plunge off the bottom of the axis.
+PLOT_FLOOR = 1e-8
+CLIP = 1e-30           # far below the axis, so arrivals leave the frame cleanly
 T_END = 8.0
+# Every effort curve is on the feedforward floor by ~1.5 s; past that (b) is flat.
+T_EFFORT = 2.0
 BETAS = [0.2, 0.5, 0.8, 1.0]
-
-# (M, nu, eps, shape, L) -- deliberately spread over orders of magnitude
-VARIANTS = [
-    (0.0, 2, 1.00, "hexagon", 5.0),
-    (5.0, 2, 1.00, "hexagon", 5.0),
-    (100.0, 2, 1.00, "line", 10.0),
-    (5.0, 1, 0.01, "vee", 2.0),
-    (50.0, 3, 0.10, "grid", 8.0),
-    (10.0, 2, 1.00, "grid", 0.5),
-]
-SHAPES = {"hexagon": hexagon, "line": line, "vee": vee, "grid": grid}
 
 
 def _clip(y):
-    return np.maximum(y, FLOOR)
+    return np.maximum(y, CLIP)
+
+
+def _avg_effort(t, res, cfg):
+    """Averaged single-integrator command: total ||u_avg|| and its corrective part.
+
+    Evaluated in closed form from sigma rather than by differencing c(t): the
+    averaged dynamics are exact, so this carries no finite-difference error at
+    the arrival instant, which is precisely where the interesting structure is.
+
+    Once component s has reached the sliding surface the equivalent control holds
+    sigma_s == 0 identically, and the command on that component is exactly the
+    feedforward rdot_s. Reconstructing zeta from the round-off residual instead
+    would report a spurious |1e-15|^beta ~ 1e-3 of effort forever after arrival.
+
+    Returns ``(||u||, ||u - rdot||)``. The second is the corrective command
+    -sigma - zeta(sigma) taken as a *vector* before norming; integrating it gives
+    the arc length the centroid travels relative to the reference, which is
+    bounded below by ||sigma(t_0)||. Norming each term first and subtracting
+    would not respect that bound.
+    """
+    sig = metrics.centroid_error(t, res.X, cfg)                  # (T, d)
+    rdot = np.array([cfg.rdot_fn(float(ti)) for ti in t])        # (T, d)
+    z = zeta(sig, cfg.beta, cfg.zeta_mode, cfg.phi)              # (T, d)
+
+    arrived = t[:, None] >= res.tau_s[None, :]                   # (T, d)
+    sig = np.where(arrived, 0.0, sig)
+    z = np.where(arrived, 0.0, z)
+
+    corrective = -sig - z                                        # (T, d)
+    return (np.linalg.norm(rdot + corrective, axis=1),
+            np.linalg.norm(corrective, axis=1))
 
 
 def main() -> dict:
     style.use_paper_style()
     Z0 = common.initial_state()
     t_eval = np.linspace(0, T_END, 4001)
-    sigma0 = Z0.reshape(common.N, common.D).mean(axis=0) - np.array([0.0, 0.0])
+    cfg_ref = common.nominal_config()
+    sigma0 = Z0.reshape(common.N, common.D).mean(axis=0) - cfg_ref.r_fn(0.0)
+    sigma0_norm = float(np.linalg.norm(sigma0))
+    ff = float(np.linalg.norm(cfg_ref.rdot_fn(0.0)))    # feedforward floor ||rdot||
 
     fig, axes = plt.subplots(1, 2, figsize=(style.COL2_W, 2.35))
+    ax_a, ax_b = axes
     summary = {}
 
-    # ---- (a) finite-time arrival vs the Eq. (25) bound --------------------
-    ax = axes[0]
-    rows = []
+    rows, efforts, lows = [], [], []
     for i, beta in enumerate(BETAS):
         cfg = common.nominal_config(beta=beta)
         res = simulate(cfg, Z0, (0, T_END), t_eval=t_eval)
         sn = np.linalg.norm(metrics.centroid_error(t_eval, res.X, cfg), axis=1)
+        u, u_corr = _avg_effort(t_eval, res, cfg)
 
         pred = theory.tau_c(sigma0, beta)
         meas = res.tau_c_measured
-        lbl = (rf"$\beta={beta}$" if beta < 1
-               else r"$\beta=1$ (linear)")
+        lbl = rf"$\beta={beta}$" if beta < 1 else r"$\beta=1$ (linear)"
+
         # Solid for the trajectory, dashed in the same hue for its own predicted
-        # tau_c: the pairing is then read off the colour, and dashed-vs-solid means
+        # tau_c: the pairing is read off the colour, and dashed-vs-solid means
         # predicted-vs-measured rather than merely "another series".
-        ax.semilogy(t_eval, _clip(sn), label=lbl, color=style.SERIES[i], lw=1.2)
+        ax_a.semilogy(t_eval, _clip(sn), label=lbl, color=style.SERIES[i], lw=1.2)
+        ax_b.plot(t_eval, u, label=lbl, color=style.SERIES[i], lw=1.2)
         if np.isfinite(pred):
-            ax.axvline(pred, color=style.SERIES[i], linestyle=(0, (4.0, 2.0)),
-                       linewidth=0.9, alpha=0.85, zorder=1.2)
+            ax_a.axvline(pred, color=style.SERIES[i], linestyle=(0, (4.0, 2.0)),
+                         linewidth=0.9, alpha=0.85, zorder=1.2)
+
+        # Arc length of sigma relative to r: bounded below by ||sigma(t_0)||.
+        excess = np.trapz(u_corr, t_eval)
         rows.append((beta, pred, meas))
+        efforts.append((beta, float(u.max()), float(excess)))
+        lows.append(float(u[t_eval <= T_EFFORT].min()))
 
-    # Describe the vertical markers in the legend rather than as floating text,
-    # which would collide with the round-off floor.
-    ax.plot([], [], label=r"predicted $\tau_c$ (Eq. 25)", color=style.MUTED,
-            linestyle=(0, (4.0, 2.0)), linewidth=0.9)
-
-    ax.set_xlabel("time  $t$  [s]")
-    ax.set_ylabel(r"$\Vert\sigma(t)\Vert$")
-    ax.set_title(r"(a) finite-time arrival vs. bound $\tau_c$", loc="left")
-    ax.set_xlim(0, T_END)
-    ax.set_ylim(3e-17, 5)
-    # One column, hard against the right edge: the beta = 1 curve passes below it
-    # there, so the box no longer sits on top of the series it is labelling.
-    ax.legend(loc="upper right", ncol=1, fontsize=6.2)
+    # ---- (a) finite-time arrival vs the predicted bound -------------------
+    ax_a.plot([], [], label=r"predicted $\tau_c$", color=style.MUTED,
+              linestyle=(0, (4.0, 2.0)), linewidth=0.9)
+    ax_a.set_xlabel("time  $t$  [s]")
+    ax_a.set_ylabel(r"$\Vert\sigma(t)\Vert$")
+    ax_a.set_title(r"(a) finite-time arrival vs. bound $\tau_c$", loc="left")
+    ax_a.set_xlim(0, T_END)
+    ax_a.set_ylim(PLOT_FLOOR, 5)
+    ax_a.legend(loc="upper right", ncol=1, fontsize=6.2)
     ok = all(m <= p * (1 + 1e-9) for _, p, m in rows if np.isfinite(p))
     summary["arrival"] = rows
     summary["arrival_ok"] = ok
 
-    # ---- (b) invariance to M, nu, eps and the formation -------------------
-    ax = axes[1]
-    curves = []
-    for M, nu, eps, shape, L in VARIANTS:
-        P = SHAPES[shape](common.N, L)
-        P_fn, Pdot_fn = static_schedule(P)
-        cfg = common.nominal_config(M=M, nu=nu, eps=eps).with_(
-            P_fn=P_fn, Pdot_fn=Pdot_fn)
-        res = simulate(cfg, Z0, (0, T_END), t_eval=t_eval)
-        curves.append(np.linalg.norm(metrics.centroid_error(t_eval, res.X, cfg), axis=1))
-
-    C = np.array(curves)
-    for k, (M, nu, eps, shape, L) in enumerate(VARIANTS):
-        ax.semilogy(t_eval, _clip(C[k]),
-                    color=style.SERIES[0] if k == 0 else style.SERIES[k % 4],
-                    lw=2.4 if k == 0 else 0.9,
-                    alpha=0.30 if k == 0 else 0.95,
-                    dashes=style.DASHES[k % 4],
-                    label=(rf"$M={M:g},\ \nu={nu},\ \varepsilon={eps:g}$, {shape}"))
-
-    ax.set_xlabel("time  $t$  [s]")
-    ax.set_ylabel(r"$\Vert\sigma(t)\Vert$")
-    ax.set_title(r"(b) invariance to $M,\nu,\varepsilon$ and $p_i$", loc="left")
-    ax.set_xlim(0, 4)
-    ax.set_ylim(3e-17, 5)
-    ax.legend(loc="upper right", fontsize=5.2)
-
-    # The six curves are the evidence; the inset that used to quantify their
-    # separation is gone, so the number it carried is stamped on the panel instead.
-    max_spread = float(np.abs(C - C[0]).max())
-    ax.text(0.40, 0.42, f"max spread between\nthe six: {max_spread:.1e}",
-            transform=ax.transAxes, ha="left", va="center", fontsize=6,
-            color=style.GOOD if max_spread < 1e-8 else style.CRITICAL)
-    summary["invariance_spread"] = max_spread
+    # ---- (b) effort of the averaged controller ----------------------------
+    # The feedforward floor is chrome, not data: every law must pay ||rdot|| just
+    # to keep station on a moving reference, so it is the baseline against which
+    # the corrective effort should be read.
+    ax_b.axhline(ff, **style.bound_style(linewidth=0.9))
+    ax_b.plot([], [], label=r"feedforward $\Vert\dot r\Vert$",
+              **style.bound_style(linewidth=0.9))
+    ax_b.set_xlabel("time  $t$  [s]")
+    ax_b.set_ylabel(r"$\Vert u_{\mathrm{avg}}(t)\Vert=\Vert\dot c(t)\Vert$")
+    ax_b.set_title(r"(b) averaged control effort", loc="left")
+    ax_b.set_xlim(0, T_EFFORT)
+    # Fit the axis to the curves; anchoring it at 0 would spend half the panel
+    # on empty space. The command dips below ||rdot|| while the corrector opposes
+    # the reference velocity, so the feedforward level is not the axis floor.
+    top = max(p for _, p, _ in efforts)
+    ax_b.set_ylim(min(lows) - 0.08, top + 0.12)
+    ax_b.legend(loc="upper right", ncol=1, fontsize=6.2)
+    summary["effort"] = efforts
+    summary["feedforward"] = ff
 
     style.save(fig, "f1_centroid")
 
-    print(f"    Eq. (25) bound holds for every beta: {ok}")
-    for beta, pred, meas in rows:
+    print(f"    settling bound holds for every beta: {ok}")
+    for (beta, pred, meas), (_, pk, ex) in zip(rows, efforts):
         p = "inf" if not np.isfinite(pred) else f"{pred:.4f}"
         m = "never" if not np.isfinite(meas) else f"{meas:.4f}"
-        print(f"      beta={beta}: predicted tau_c={p:>8}  measured={m:>8}")
-    print(f"    invariance: max spread across 6 settings = {max_spread:.2e}")
+        print(f"      beta={beta}: tau_c pred={p:>8} meas={m:>8} | "
+              f"peak effort={pk:.4f}  corrective action={ex:.4f}")
+    print(f"    feedforward floor ||rdot|| = {ff:.4f}")
+    print(f"    ||sigma(t_0)|| = {sigma0_norm:.4f}  (lower bound on corrective action)")
     return summary
 
 

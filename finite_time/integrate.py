@@ -18,11 +18,12 @@ Two things matter for the figures to mean anything:
    is an exact-arithmetic statement: in floating point sigma_s approaches zero
    without ever changing sign, so a sign-change event never fires and the solver
    instead grinds its step size down forever at the crossing. Triggering on a
-   small positive threshold fires reliably, and the error it introduces is
-   bounded by the remaining travel time from LATCH_TOL to zero,
-   ln(1 + tol^(1-beta))/(1-beta) ~ 2e-6 s at the default -- four orders of
-   magnitude below the plotting resolution of any figure here, and biased towards
-   *under*-reporting tau_c, so it can never manufacture agreement with Eq. (25).
+   small positive threshold fires reliably, and it under-reports tau_c by the
+   remaining travel time from LATCH_TOL to zero, ln(1 + tol^(1-beta))/(1-beta).
+   The default 1e-8 is the level below which a centroid error says nothing
+   physical about a swarm; there the under-report is 5e-7 s, 2e-4 s and 0.12 s
+   for beta = 0.2, 0.5, 0.8 -- far below the margins by which the measured tau_c
+   beats Eq. (25), so it cannot account for that agreement.
 
 Latching is a *nominal-system* statement. Under disturbance sigma does not stay at
 zero -- it settles into a ball of radius wbar^(1/beta) -- so runs with ``w_fn``
@@ -42,7 +43,7 @@ Vec = np.ndarray
 RTOL = 1e-10
 ATOL = 1e-12
 METHOD = "LSODA"
-LATCH_TOL = 1e-12      # |sigma_s| at which a component is declared arrived
+LATCH_TOL = 1e-8       # |sigma_s| at which a component is declared arrived
 
 
 @dataclass

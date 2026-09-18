@@ -159,6 +159,8 @@ def save(fig, name: str) -> Path:
     FIG_DIR.mkdir(parents=True, exist_ok=True)
     png = FIG_DIR / f"{name}.png"
     fig.savefig(png)
+    # Vector copy for the paper: IEEE production wants line art as vector PDF.
+    fig.savefig(png.with_suffix(".pdf"))
     plt.close(fig)
-    print(f"    wrote {png.relative_to(FIG_DIR.parent)}")
+    print(f"    wrote {png.relative_to(FIG_DIR.parent)} (+ .pdf)")
     return png

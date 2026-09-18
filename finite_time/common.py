@@ -14,7 +14,7 @@ from .model import SwarmConfig
 Vec = np.ndarray
 
 # --- nominal scenario -----------------------------------------------------
-N = 6
+N = 10
 D = 2
 NU = 2
 EPS = 1.0

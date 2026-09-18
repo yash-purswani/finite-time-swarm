@@ -59,6 +59,80 @@ def grid(n: int, L: float = 1.0, d: int = 2) -> Vec:
     return _centre(P)
 
 
+def _arc_sample(curve: Vec, n: int, closed: bool) -> Vec:
+    """n points equally spaced by arc length along a polyline or sampled curve.
+
+    Rows come out in outline order, so drawing them as a closed polygon traces
+    the shape.
+    """
+    pts = np.vstack([curve, curve[:1]]) if closed else curve
+    s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(pts, axis=0), axis=1))]
+    targets = np.linspace(0.0, s[-1], n, endpoint=not closed)
+    return np.column_stack([np.interp(targets, s, pts[:, k])
+                            for k in range(pts.shape[1])])
+
+
+def _planar(P2: Vec, d: int) -> Vec:
+    P = np.zeros((P2.shape[0], d))
+    P[:, :2] = P2
+    return _centre(P)
+
+
+def star(n: int, L: float = 1.0, inner: float = 0.45, points: int = 5,
+         d: int = 2) -> Vec:
+    """Star outline with ``points`` tips at radius L, sampled at equal arc length.
+
+    With n a multiple of 2 * points every vertex is a slot.
+    """
+    k = np.arange(2 * points)
+    ang = np.pi / 2 + np.pi * k / points
+    rad = np.where(k % 2 == 0, L, inner * L)
+    outline = np.column_stack([rad * np.cos(ang), rad * np.sin(ang)])
+    return _planar(_arc_sample(outline, n, closed=True), d)
+
+
+def heart(n: int, L: float = 1.0, d: int = 2) -> Vec:
+    """n points equally spaced by arc length on the classic heart curve, width 2L.
+
+    Sampling starts at the top notch, so for even n the bottom tip is a slot too.
+    """
+    t = np.linspace(0.0, 2.0 * np.pi, 2000, endpoint=False)
+    curve = np.column_stack([16 * np.sin(t) ** 3,
+                             13 * np.cos(t) - 5 * np.cos(2 * t)
+                             - 2 * np.cos(3 * t) - np.cos(4 * t)]) * (L / 16.0)
+    return _planar(_arc_sample(curve, n, closed=True), d)
+
+
+def arrow(n: int, L: float = 1.0, d: int = 2) -> Vec:
+    """Block arrow of length 2L pointing along +x, rows in outline order (n >= 7).
+
+    The seven corners of the outline are always stations; the other n - 7 go in
+    pairs along the shaft, plus one at the centre of the tail if n - 7 is odd.
+    """
+    head, h, w = 0.8 * L, 0.6 * L, 0.3 * L      # head length, head and shaft half-widths
+    b = L - head
+    xs = np.linspace(b, -L, (n - 7) // 2 + 2)[1:-1]
+    top = [[L, 0.0], [b, h], [b, w]] + [[x, w] for x in xs] + [[-L, w]]
+    tail = [[-L, 0.0]] if (n - 7) % 2 else []
+    bottom = [[-L, -w]] + [[x, -w] for x in xs[::-1]] + [[b, -w], [b, -h]]
+    return _planar(np.array(top + tail + bottom), d)
+
+
+def wedge(n: int, L: float = 1.0, d: int = 2) -> Vec:
+    """Filled wedge with its apex leading along +x: rows of 1, 2, 3, ... agents.
+
+    A triangular lattice of spacing L; the last row is centred if n is not a
+    triangular number.
+    """
+    pts, row = [], 0
+    while len(pts) < n:
+        m = min(row + 1, n - len(pts))
+        x = -row * L * np.sqrt(3) / 2
+        pts += [[x, (j - (m - 1) / 2) * L] for j in range(m)]
+        row += 1
+    return _planar(np.array(pts), d)
+
+
 def sphere(n: int, L: float = 1.0) -> Vec:
     """Fibonacci sphere of radius L, used for the d = 3 run in F6."""
     i = np.arange(n) + 0.5
@@ -70,7 +144,8 @@ def sphere(n: int, L: float = 1.0) -> Vec:
     return _centre(P)
 
 
-SHAPES = {"hexagon": hexagon, "line": line, "vee": vee, "grid": grid}
+SHAPES = {"hexagon": hexagon, "line": line, "vee": vee, "grid": grid,
+          "star": star, "heart": heart, "arrow": arrow, "wedge": wedge}
 
 
 def break_centering(P: Vec, offset: Sequence[float]) -> Vec:
@@ -167,5 +242,28 @@ def morph_schedule(shapes: List[Vec],
             return np.zeros_like(S[0])
         _, ds = _quintic(u)
         return (ds / morph_time) * (S[k] - S[k - 1])
+
+    return P_fn, Pdot_fn
+
+
+def rotating_schedule(P: Vec, omega: float) -> Tuple[Callable, Callable]:
+    """Rigid rotation of a centred planar formation at constant rate ``omega``.
+
+    Exercises the pdot_i feedforward of the model, which ``static_schedule``
+    leaves identically zero. Rotation preserves the centering condition exactly:
+    sum_i R(t) p_i = R(t) sum_i p_i = 0, so Eq. (4) holds for every t whenever it
+    holds for the template.
+    """
+    P = np.asarray(P, dtype=float)
+    if P.shape[1] != 2:
+        raise ValueError("rotating_schedule is planar; got d=%d" % P.shape[1])
+
+    def P_fn(t):
+        c, s = np.cos(omega * t), np.sin(omega * t)
+        return P @ np.array([[c, -s], [s, c]]).T
+
+    def Pdot_fn(t):
+        c, s = np.cos(omega * t), np.sin(omega * t)
+        return P @ (omega * np.array([[-s, -c], [c, -s]])).T
 
     return P_fn, Pdot_fn

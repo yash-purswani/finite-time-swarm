@@ -68,3 +68,13 @@ venv.bak/
 
 # Ruff stuff:
 .ruff_cache/
+
+# LaTeX build artefacts
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
